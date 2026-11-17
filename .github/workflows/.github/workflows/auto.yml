@@ -1,0 +1,66 @@
+name: Auto update VLESS keys
+
+on:
+  # Запуск каждые 6 часов (в 00:00, 06:00, 12:00, 18:00 по UTC)
+  schedule:
+    - cron: "0 */6 * * *"
+
+  # Кнопка "Run workflow" для запуска вручную
+  workflow_dispatch:
+
+# Даём workflow право записывать изменения в репозиторий
+permissions:
+  contents: write
+
+# Не запускать два обновления одновременно
+concurrency:
+  group: auto-update-keys
+  cancel-in-progress: false
+
+jobs:
+  update-keys:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 1. Забрать код из репозитория
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 2. Установить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 3. Установить библиотеки (если нужны)
+        run: |
+          python -m pip install --upgrade pip
+          # collector.py использует только стандартные библиотеки Python,
+          # поэтому здесь пока ничего ставить не нужно.
+          # Если позже добавите зависимости — создайте requirements.txt
+          # и раскомментируйте строку ниже:
+          # pip install -r requirements.txt
+
+      - name: 4. Запустить collector.py
+        run: python collector.py
+
+      - name: 5. Закоммитить и запушить keys.txt
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add keys.txt
+
+          # Если файл не изменился — ничего не делаем
+          if git diff --cached --quiet; then
+            echo "keys.txt не изменился — коммит не нужен"
+            exit 0
+          fi
+
+          git commit -m "Auto update keys.txt ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+
+          # Подтянуть свежие изменения, чтобы не было конфликта
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+
+          git push
